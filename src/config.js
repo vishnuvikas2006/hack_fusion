@@ -6,7 +6,7 @@ const path = require('node:path');
 // Production deployments inject environment variables directly. This small loader
 // supports local development without adding a dependency and never reads .env.example.
 const LOCAL_ENV_PATH = path.resolve(__dirname, '..', '.env');
-const PROVIDER_ENV_KEYS = new Set(['OPENROUTER_API_KEY', 'GEMINI_API_KEY', 'GEMINI_MODEL', 'GEMINI_COMPLEX_THINKING_LEVEL', 'GEMINI_DEEP_THINKING_LEVEL', 'OPENAI_API_KEY', 'OPENAI_MODEL', 'OPENROUTER_ALLOW_PAID_MODELS']);
+const PROVIDER_ENV_KEYS = new Set(['OPENROUTER_API_KEY', 'GEMINI_API_KEY', 'GEMINI_MODEL', 'GEMINI_COMPLEX_THINKING_LEVEL', 'GEMINI_DEEP_THINKING_LEVEL', 'GEMINI_MAX_OUTPUT_TOKENS', 'GEMINI_COMPLEX_MAX_OUTPUT_TOKENS', 'GEMINI_REVIEW_MAX_OUTPUT_TOKENS', 'OPENAI_API_KEY', 'OPENAI_MODEL', 'OPENROUTER_ALLOW_PAID_MODELS']);
 
 function loadLocalEnvironment() {
   const envPath = LOCAL_ENV_PATH;
@@ -95,14 +95,22 @@ const config = {
   geminiComplexThinkingLevel: parseEnum('GEMINI_COMPLEX_THINKING_LEVEL', 'medium', ['low', 'medium', 'high']),
   geminiDeepThinkingLevel: parseEnum('GEMINI_DEEP_THINKING_LEVEL', 'high', ['low', 'medium', 'high']),
   geminiMaxOutputTokens: parseInteger('GEMINI_MAX_OUTPUT_TOKENS', 2048, 256, 64000),
-  geminiComplexMaxOutputTokens: parseInteger('GEMINI_COMPLEX_MAX_OUTPUT_TOKENS', 4096, 512, 64000),
+  geminiComplexMaxOutputTokens: parseInteger('GEMINI_COMPLEX_MAX_OUTPUT_TOKENS', 8192, 512, 64000),
+  geminiReviewMaxOutputTokens: parseInteger('GEMINI_REVIEW_MAX_OUTPUT_TOKENS', 4096, 512, 64000),
   openAiKey: process.env.OPENAI_API_KEY || '',
   openAiModel: process.env.OPENAI_MODEL || 'gpt-4.1-mini',
+  modelOutputTokens: parseInteger('MODEL_OUTPUT_TOKENS', 1600, 256, 32000),
+  complexModelOutputTokens: parseInteger('COMPLEX_MODEL_OUTPUT_TOKENS', 4096, 512, 32000),
+  finalAnswerMaxChars: parseInteger('FINAL_ANSWER_MAX_CHARS', 6000, 1000, 100000),
+  complexFinalAnswerMaxChars: parseInteger('COMPLEX_FINAL_ANSWER_MAX_CHARS', 20000, 2000, 100000),
   modelCount: parseInteger('MODEL_COUNT', 5, 1, 12),
   maxModelCalls: parseInteger('MAX_MODEL_CALLS', 8, 1, 15),
   minSuccessfulModels: parseInteger('MIN_SUCCESSFUL_MODELS', 3, 1, 8),
   modelConcurrency: parseInteger('MAX_CONCURRENT_MODEL_CALLS', 2, 1, 4),
   maxRetries: parseInteger('MAX_RETRIES', 2, 0, 5),
+  // Kept separate from provider retries so verification correction remains a
+  // clearly bounded policy decision. MAX_RETRIES remains the legacy fallback.
+  maxCorrectionLoops: parseInteger('MAX_CORRECTION_LOOPS', parseInteger('MAX_RETRIES', 2, 0, 5), 0, 5),
   maxRounds: parseInteger('MAX_ROUNDS', 5, 1, 8),
   modelTimeoutMs: parseInteger('MODEL_TIMEOUT_MS', 45000, 1000, 120000),
   maxInputChars: parseInteger('MAX_INPUT_CHARS', 16000, 100, 100000),
@@ -111,6 +119,7 @@ const config = {
   confidenceThreshold: parseNumber('CONFIDENCE_THRESHOLD', 0.80, 0.1, 0.99),
   evidenceThreshold: parseNumber('EVIDENCE_THRESHOLD', 0.70, 0.1, 1),
   contradictionThreshold: parseNumber('CONTRADICTION_THRESHOLD', 0.35, 0, 1),
+  adaptiveDisagreementThreshold: parseNumber('ADAPTIVE_DISAGREEMENT_THRESHOLD', 0.35, 0.05, 0.95),
   sandboxEnabled: process.env.SANDBOX_ENABLED === 'true',
   sandboxImage: process.env.SANDBOX_IMAGE || 'node:22-alpine',
   adminToken: process.env.ADMIN_TOKEN || '',
@@ -207,7 +216,11 @@ function publicConfig() {
     policyVersion: config.policyVersion,
     paidModelsEnabled: config.openRouterAllowPaidModels,
     directProviders: {
-      gemini: { configured: Boolean(config.geminiKey), model: config.geminiModel },
+      gemini: {
+        configured: Boolean(config.geminiKey), model: config.geminiModel,
+        complexThinkingLevel: config.geminiComplexThinkingLevel,
+        deepThinkingLevel: config.geminiDeepThinkingLevel
+      },
       openai: { configured: Boolean(config.openAiKey), model: config.openAiModel }
     }
   };

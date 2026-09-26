@@ -5,6 +5,7 @@ const fs = require('node:fs/promises');
 const path = require('node:path');
 const { config, publicConfig, updateProviderSettings } = require('./config');
 const { gatewayForRuntime } = require('./modelGateway');
+const { extractUploadedDocuments } = require('./documentExtraction');
 const { RunStore } = require('./store');
 const { compactRun, markdownReport, htmlReport } = require('./report');
 const { SCENARIOS, parseTask, createRun, executeRun, redTeamAssessment } = require('./pipeline');
@@ -117,7 +118,9 @@ async function handleApi(request, response, url, requestId) {
   }
   if (request.method === 'GET' && pathname === '/api/runs') return sendJson(response, 200, { runs: store.list() });
   if (request.method === 'POST' && pathname === '/api/runs') {
-    const task = parseTask(await readJson(request));
+    const body = await readJson(request);
+    body.documents = await extractUploadedDocuments(body.documents);
+    const task = parseTask(body);
     const run = store.create(createRun(task));
     structuredLog({ requestId, runId: run.id, event: 'run_started', taskTypes: task.categories, poolMode: task.poolMode });
     executeRun({ run, gateway: gatewayForRuntime(), publish: (runId, event) => store.publish(runId, event) }).then(() => structuredLog({ requestId, runId: run.id, event: 'run_completed', status: run.status, decision: run.decision?.title }));
@@ -141,9 +144,11 @@ async function handleApi(request, response, url, requestId) {
       const body = await readJson(request);
       const requested = String(body.action || 'request-evidence');
       const reviewAction = ['approve', 'reject', 'request-evidence'].includes(requested) ? requested : 'request-evidence';
-      run.reviewCheckpoint = { action: reviewAction, note: redactSecrets(String(body.note || '').slice(0, 600)), at: now() };
-      store.publish(run.id, { at: run.reviewCheckpoint.at, stage: 'human-review', message: `Human review: ${reviewAction.replace('-', ' ')}`, status: reviewAction });
-      return sendJson(response, 200, { run: compactRun(run), review: run.reviewCheckpoint });
+      const review = { action: reviewAction, note: redactSecrets(String(body.note || '').slice(0, 600)), at: now() };
+      run.reviewCheckpoint = review;
+      run.humanReviews = [...(run.humanReviews || []), review];
+      store.publish(run.id, { at: review.at, stage: 'human-review', message: `Human review: ${reviewAction.replace('-', ' ')}`, status: reviewAction });
+      return sendJson(response, 200, { run: compactRun(run), review });
     }
     // Replay creates an independent run with the same sanitized task and
     // current provider registry. The historical audit remains unchanged.

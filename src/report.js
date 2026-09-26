@@ -7,10 +7,15 @@ function compactRun(run) {
   return JSON.parse(JSON.stringify(run));
 }
 
-function markdownReport(run) {
+function baseMarkdownReport(run) {
   const rows = run.claims.map((claim) => `| ${claim.id} | ${claim.text.replaceAll('|', '\\|')} | ${claim.agreement.supporters}/${claim.agreement.total} | ${claim.status} | ${claim.confidence}% |`).join('\n');
   const evidence = run.evidence.map((item) => `- **${item.id} — ${item.title}** (${item.type}, ${item.relation}): ${item.excerpt}`).join('\n') || '- No evidence items retrieved.';
   return `# Verification Report — ${run.id}\n\n**Started:** ${run.startedAt}  \n**Completed:** ${run.completedAt || 'In progress'}  \n**Decision:** ${run.decision?.title || 'RUNNING'}  \n**Confidence:** ${run.confidence?.score ?? '—'}%\n\n## Original Task\n\n${run.task.text}\n\n## Final Answer\n\n${run.finalAnswer?.conclusion || 'In progress'}\n\n## Decision Rationale\n\n${run.decision?.reason || 'In progress'}\n\n## Claim Matrix\n\n| Claim | Text | Model agreement | Status | Confidence |\n| --- | --- | --- | --- | --- |\n${rows || '| — | No claims | — | — | — |'}\n\n## Evidence\n\n${evidence}\n\n## Verification Checks\n\n${run.checks.map((check) => `- **${check.type}: ${check.status.toUpperCase()}** — ${check.detail}`).join('\n')}\n\n## Corrections\n\n${run.corrections.length ? run.corrections.map((item) => `- Attempt ${item.attempt}: ${item.action} (${item.reverified ? 're-verified' : 'pending'})`).join('\n') : '- No correction loop was required.'}\n\n## Audit Metadata\n\n\`\`\`json\n${JSON.stringify(run.metadata, null, 2)}\n\`\`\`\n`;
+}
+
+function markdownReport(run) {
+  const ledger = (run.agentLedger || []).map((agent) => `- **${agent.role} — ${String(agent.status || 'unknown').toUpperCase()}**: ${agent.detail || agent.responsibility || 'No detail recorded.'}`).join('\n') || '- Agent ledger is not available for this historical run.';
+  return baseMarkdownReport(run).replace('\n\n## Claim Matrix', `\n\n## Agent Ledger\n\n${ledger}\n\n## Claim Matrix`);
 }
 
 function htmlReport(run) {
